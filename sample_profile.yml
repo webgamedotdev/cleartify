@@ -1,0 +1,24 @@
+- hosts: all
+  vars:
+    temporary_accounts: "{{ lookup('env', 'temporary_accounts') | default('', true) }}"
+  checks:
+    - name: Check if temporary_accounts is empty
+      debug:
+        msg: "Temporary accounts should be empty"
+      when: temporary_accounts | length == 0
+
+    - name: Check account expiration for each temporary account
+      command: "chage -l {{ item }} | grep 'Account expires'"
+      register: account_expiration
+      loop: "{{ temporary_accounts.split(',') }}"
+      when: temporary_accounts | length > 0
+      ignore_errors: yes
+
+    - name: Assert account expiration is not set to 'never'
+      assert:
+        that:
+          - "'never' not in account_expiration.results | map(attribute='stdout') | list"
+        fail_msg: "Account {{ item.item }} should not have expiration set to 'never'"
+        success_msg: "Account {{ item.item }} expiration is set correctly"
+      loop: "{{ account_expiration.results }}"
+      when: account_expiration is defined
