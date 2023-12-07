@@ -15,14 +15,14 @@ type ExpectationBuilder struct {
 	control *Control
 }
 
-func (eb *ExpectationBuilder) To(comparator ComparatorFunc, successMsg string, failMsg string) *Control {
-	eb.control.Expectation = &Expectation{
-		Comparator: comparator,
-		SuccessMsg: successMsg,
-		FailMsg:    failMsg,
-	}
-	return eb.control
-}
+// func (eb *ExpectationBuilder) To(comparator ComparatorFunc, successMsg string, failMsg string) *Control {
+// 	eb.control.Expectation = &Expectation{
+// 		Comparator: comparator,
+// 		SuccessMsg: successMsg,
+// 		FailMsg:    failMsg,
+// 	}
+// 	return eb.control
+// }
 
 // NotEqual comparator
 func NotEqual(expected interface{}) ComparatorFunc {

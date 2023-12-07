@@ -1,0 +1,19 @@
+profile:
+  name: "profile_name"
+  description: "profile with list of controls"
+controls:
+  - id: "SV-238196"
+    title: "Temporary User Account Provisioning"
+    descriptions:
+      general: "If temporary user accounts remain active when no longer needed..."
+      check: "Verify that the Ubuntu operating system expires temporary user accounts within 72 hours..."
+      fix: "If a temporary account must be created, configure the system to terminate the account after a 72-hour time period..."
+    impact: 0.5
+    verify:
+      command: "chage -l tempuser | grep 'Account expires'"
+      expected:
+        comparison: "NotEqual"
+        value: "never"
+    outcome:
+      failMessage: "Account expiration setting is incorrect"
+      successMessage: "Account expiration setting is correct"

@@ -1,28 +1,20 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/webgamedotdev/cleartify/models"
+	"gopkg.in/yaml.v2"
 )
 
-// parseArgs
 func parseArgs() (profile, target string, err error) {
 	if len(os.Args) < 3 {
 		return "", "", fmt.Errorf("Usage: %s <profile> <target>", os.Args[0])
 	}
 	return os.Args[1], os.Args[2], nil
-}
-
-func getEnvVar(key string, defaultValue string) string {
-	value, exists := os.LookupEnv(key)
-	if !exists {
-		return defaultValue
-	}
-	return value
 }
 
 type App struct {
@@ -34,95 +26,71 @@ func NewApp(profile models.Profile, target models.Target) *App {
 	return &App{profile, target}
 }
 
+func (app *App) RunProfile() (*models.Report, error) {
+	report := models.NewReport()
+	for _, control := range app.profile.Controls {
+		fmt.Println("Running control:", control.ID)
+		msg, err := control.Run(app.target)
+		if err != nil {
+			return &models.Report{}, err
+		}
+		fmt.Println("Control result:", msg)
+		// report.AddResult(control.ID, msg)
+	}
+	return report, nil
+}
+
 func main() {
 
-	// TODO: implement profile
-	parsedProfile, hostTarget, err := parseArgs()
-	fmt.Printf("parseArgs returned: %s, %s \n", parsedProfile, hostTarget)
+	profilePath := flag.String("profile", "", "Path to the profile YAML file")
+	platform := flag.String("platform", "", "Platform to execute on (e.g., docker://container_id)")
+	// reportPath := flag.String("report", "profile.json", "Path to save the report")
+
+	// Parse command line flags
+	flag.Parse()
+
+	// Load the profile from the YAML file
+	profileData, err := os.ReadFile(*profilePath)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Printf("Error reading profile file: %v\n", err)
 		os.Exit(1)
 	}
 
+	var profile models.Profile
+	err = yaml.Unmarshal(profileData, &profile)
+	if err != nil {
+		fmt.Printf("Error parsing profile YAML: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Determine the target based on the platform
 	var target models.Target
-	fmt.Println("Target:", hostTarget)
-	// Get the Target type
-	splitTarget := strings.Split(hostTarget, "://")
-	if splitTarget[0] == "docker" {
-		containerID := splitTarget[1]
-		fmt.Println("Running in Docker container: ", containerID)
+	if strings.HasPrefix(*platform, "docker://") {
+		containerID := strings.TrimPrefix(*platform, "docker://")
 		target = &models.DockerTarget{ContainerID: containerID}
 	} else {
+		// Handle other platforms or default to local
 		target = &models.LocalTarget{}
 	}
 
-	tmpAccounts := models.NewControl("SV-238196", "Temporary User Account Provisioning").
-		AddDescription(models.DescriptionGeneral, "If temporary user accounts remain active when no longer needed...").
-		AddDescription(models.DescriptionCheck, "Verify that the Ubuntu operating system expires temporary user accounts within 72 hours...").
-		AddDescription(models.DescriptionFix, "If a temporary account must be created, configure the system to terminate the account after a 72-hour time period...").
-		SetImpact(0.5).
-		Check(createAccountExpirationCheck("tempuser", target)).
-		To(models.NotEqual(-1), "Account expiration setting is correct", "Account expiration setting is incorrect")
+	// Create and configure the application
+	app := NewApp(profile, target)
 
-	profile := models.NewProfile([]models.Control{*tmpAccounts})
-	report, err := profile.Run()
+	// Run the profile and generate the report
+	report, err := app.RunProfile()
 	if err != nil {
-		fmt.Println("Error running profile:", err)
-		return
-	}
-	fmt.Println("Profile Report:", report)
-}
-
-func getAccountExpiration(accountName string, target models.Target) (interface{}, error) {
-	cmdStr := fmt.Sprintf("chage -l %s | grep 'Account expires' | cut -d: -f2", accountName)
-	fmt.Println("Running command:", cmdStr)
-	out, err := target.ExecuteCommand(cmdStr)
-	fmt.Println("Output:", out)
-	if err != nil {
-		return nil, err
+		fmt.Printf("Error running profile: %v\n", err)
+		os.Exit(1)
 	}
 
-	expirationStr := strings.TrimSpace(out)
-	if expirationStr == "never" {
-		return -1, nil // -1 can represent 'never expires'
-	}
+	fmt.Println("Profile execution complete. Report: {%s}", report)
 
-	// Parse expiration date and calculate days until expiration
-	daysUntilExpiration, err := parseExpirationDate(expirationStr)
-	if err != nil {
-		return nil, err
-	}
-	return daysUntilExpiration, nil
-}
-
-func createAccountExpirationCheck(accountName string, target models.Target) models.CheckFunc {
-	return func() (interface{}, error) {
-		return getAccountExpiration(accountName, target)
-	}
-}
-
-// fixAccountExpiration sets the expiration time for a given account to 72 hours from now
-func fixAccountExpiration(accountName string, target *models.DockerTarget) error {
-	expirationDate := time.Now().Add(72 * time.Hour).Format("Jan 02, 2006")
-	cmdStr := fmt.Sprintf("sudo chage -E '%s' %s", expirationDate, accountName)
-	_, err := target.ExecuteCommand(cmdStr)
-	return err
-}
-
-// parseExpirationDate parses a date string in a specific format and returns the number of days until that date
-func parseExpirationDate(dateStr string) (int, error) {
-	// Define the layout of the expected date format
-	// This should match the format output by `chage -l`
-	// Example layout: "Jan 02, 2006" for a date like "Jul 07, 2023"
-	const layout = "Jan 02, 2006"
-
-	expirationDate, err := time.Parse(layout, dateStr)
-	if err != nil {
-		return 0, fmt.Errorf("error parsing date: %v", err)
-	}
-
-	// Calculate the difference in days between now and the expiration date
-	daysUntilExpiration := int(expirationDate.Sub(time.Now()).Hours() / 24)
-
-	return daysUntilExpiration, nil
+	// Save the report to a file
+	// err = report.SaveToFile(*reportPath)
+	// if err != nil {
+	// 	fmt.Printf("Error saving report: %v\n", err)
+	// 	os.Exit(1)
+	// }
+	//
+	// fmt.Println("Profile execution complete. Report saved to:", *reportPath)
 }
